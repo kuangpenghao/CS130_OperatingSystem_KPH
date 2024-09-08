@@ -11,6 +11,7 @@
 #include "threads/switch.h"
 #include "threads/synch.h"
 #include "threads/vaddr.h"
+#include "../lib/kernel/list.h"
 #ifdef USERPROG
 #include "userprog/process.h"
 #endif
@@ -178,6 +179,7 @@ thread_create (const char *name, int priority,
   t = palloc_get_page (PAL_ZERO);
   if (t == NULL)
     return TID_ERROR;
+  t->sleep_ticks = 0;  
 
   /* Initialize thread. */
   init_thread (t, name, priority);
@@ -203,6 +205,22 @@ thread_create (const char *name, int priority,
 
   return tid;
 }
+
+/* Check if the thread is blocked.If so,then reduce its sleep_ticks
+   by one tick.
+   
+   If sleep_ticks of this thread has been reduced to zero,
+   then it can be unblocked. */
+void
+thread_block_tick(struct thread *t, void * aux)
+{
+  if(t->status == THREAD_BLOCKED)
+  {
+    t->sleep_ticks--;
+    if(t->sleep_ticks <= 0)thread_unblock(t);
+  }
+}
+
 
 /* Puts the current thread to sleep.  It will not be scheduled
    again until awoken by thread_unblock().
@@ -237,7 +255,7 @@ thread_unblock (struct thread *t)
 
   old_level = intr_disable ();
   ASSERT (t->status == THREAD_BLOCKED);
-  list_push_back (&ready_list, &t->elem);
+  list_insert_ordered(&ready_list, &t->elem,(list_less_func *) &cmp_less_compare, NULL);
   t->status = THREAD_READY;
   intr_set_level (old_level);
 }
@@ -308,7 +326,7 @@ thread_yield (void)
 
   old_level = intr_disable ();
   if (cur != idle_thread) 
-    list_push_back (&ready_list, &cur->elem);
+    list_insert_ordered(&ready_list, &cur->elem,(list_less_func *) &cmp_less_compare, NULL);
   cur->status = THREAD_READY;
   schedule ();
   intr_set_level (old_level);
@@ -465,7 +483,7 @@ init_thread (struct thread *t, const char *name, int priority)
   t->magic = THREAD_MAGIC;
 
   old_level = intr_disable ();
-  list_push_back (&all_list, &t->allelem);
+  list_insert_ordered(&all_list, &t->allelem,(list_less_func *) &cmp_less_compare, NULL);
   intr_set_level (old_level);
 }
 
