@@ -207,18 +207,15 @@ thread_create (const char *name, int priority,
   return tid;
 }
 
-/* Check if the thread is blocked.If so,then reduce its sleep_ticks
-   by one tick.
-   
-   If sleep_ticks of this thread has been reduced to zero,
-   then it can be unblocked. */
-void
-thread_block_tick(struct thread *t, void * aux)
+/* Check if the thread is blocked due to block_ticks.
+   If so,reduce it one unit per tick */
+void 
+thread_blocked_tick(struct thread *t,void *aux)
 {
-  if(t->status == THREAD_BLOCKED)
+  if(t->status == THREAD_BLOCKED && t->block_ticks)
   {
-    t->sleep_ticks--;
-    if(t->sleep_ticks <= 0)thread_unblock(t);
+    t->block_ticks--;
+    if(t->block_ticks == 0)thread_unblock(t);
   }
 }
 
@@ -256,7 +253,7 @@ thread_unblock (struct thread *t)
 
   old_level = intr_disable ();
   ASSERT (t->status == THREAD_BLOCKED);
-  list_insert_ordered(&ready_list, &t->elem,(list_less_func *) &cmp_less_compare, NULL);
+  list_insert_ordered(&ready_list, &t->elem, &thread_priority_cmp,NULL);
   t->status = THREAD_READY;
   intr_set_level (old_level);
 }
@@ -327,7 +324,7 @@ thread_yield (void)
 
   old_level = intr_disable ();
   if (cur != idle_thread) 
-    list_insert_ordered(&ready_list, &cur->elem,(list_less_func *) &cmp_less_compare, NULL);
+    list_insert_ordered(&ready_list, &cur->elem, &thread_priority_cmp,NULL);
   cur->status = THREAD_READY;
   schedule ();
   intr_set_level (old_level);
@@ -349,6 +346,15 @@ thread_foreach (thread_action_func *func, void *aux)
       func (t, aux);
     }
 }
+
+/* The cmp function for comparing priorities of two threads*/
+bool thread_priority_cmp(const struct list_elem *a, const struct list_elem *b, void *aux)
+{
+  struct thread *thread_a = list_entry(a, struct thread, elem);
+  struct thread *thread_b = list_entry(b, struct thread, elem);
+  return thread_a->priority > thread_b->priority;
+}
+
 
 /* Sets the current thread's priority to NEW_PRIORITY. */
 void
@@ -483,9 +489,10 @@ init_thread (struct thread *t, const char *name, int priority)
   t->stack = (uint8_t *) t + PGSIZE;
   t->priority = priority;
   t->magic = THREAD_MAGIC;
+  t->block_ticks = 0;
 
   old_level = intr_disable ();
-  list_insert_ordered(&all_list, &t->allelem,(list_less_func *) &cmp_less_compare, NULL);
+  list_insert_ordered(&all_list, &t->allelem, &thread_priority_cmp,NULL);
   intr_set_level (old_level);
 }
 
