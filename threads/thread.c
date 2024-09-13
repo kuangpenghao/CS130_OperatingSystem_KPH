@@ -179,6 +179,7 @@ thread_create (const char *name, int priority,
   t = palloc_get_page (PAL_ZERO);
   if (t == NULL)
     return TID_ERROR;
+  t->sleep_ticks = 0;  
 
   /* Initialize thread. */
   init_thread (t, name, priority);
@@ -201,12 +202,15 @@ thread_create (const char *name, int priority,
 
   /* Add to run queue. */
   thread_unblock (t);
+  thread_yield();
 
   return tid;
 }
 
-
-void thread_blocked_tick(struct thread *t,void *aux)
+/* Check if the thread is blocked due to block_ticks.
+   If so,reduce it one unit per tick */
+void 
+thread_blocked_tick(struct thread *t,void *aux)
 {
   if(t->status == THREAD_BLOCKED && t->block_ticks)
   {
@@ -357,6 +361,7 @@ void
 thread_set_priority (int new_priority) 
 {
   thread_current ()->priority = new_priority;
+  thread_yield();
 }
 
 /* Returns the current thread's priority. */
