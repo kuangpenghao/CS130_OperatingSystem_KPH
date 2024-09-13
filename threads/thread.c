@@ -343,7 +343,7 @@ thread_foreach (thread_action_func *func, void *aux)
     }
 }
 
-
+/* The cmp function for comparing priorities of two threads*/
 bool thread_priority_cmp(const struct list_elem *a, const struct list_elem *b, void *aux)
 {
   struct thread *thread_a = list_entry(a, struct thread, elem);
