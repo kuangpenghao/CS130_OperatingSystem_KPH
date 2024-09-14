@@ -99,7 +99,6 @@ timer_sleep (int64_t ticks)
     thread_block();
     intr_set_level(old_level);
   }
-
 }
 
 /* Sleeps for approximately MS milliseconds.  Interrupts must be

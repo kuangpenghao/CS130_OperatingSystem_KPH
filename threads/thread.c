@@ -179,6 +179,7 @@ thread_create (const char *name, int priority,
   t = palloc_get_page (PAL_ZERO);
   if (t == NULL)
     return TID_ERROR;
+  t->sleep_ticks = 0;  
 
   /* Initialize thread. */
   init_thread (t, name, priority);
@@ -208,7 +209,8 @@ thread_create (const char *name, int priority,
 
 /* Check if the thread is blocked due to block_ticks.
    If so,reduce it one unit per tick */
-void thread_blocked_tick(struct thread *t,void *aux)
+void 
+thread_blocked_tick(struct thread *t,void *aux)
 {
   if(t->status == THREAD_BLOCKED && t->block_ticks)
   {

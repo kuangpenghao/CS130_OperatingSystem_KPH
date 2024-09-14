@@ -1,5 +1,6 @@
 #include "list.h"
 #include "../debug.h"
+#include "../threads/thread.h"
 
 /* Our doubly linked lists have two header elements: the "head"
    just before the first element and the "tail" just after the
@@ -397,6 +398,17 @@ inplace_merge (struct list_elem *a0, struct list_elem *a1b0,
         list_splice (a0, list_prev (a1b0), a1b0);
       }
 }
+
+
+/* cmp function for list_insert_ordered.
+
+   Compare threads based on their priorities.*/
+bool cmp_less_compare (struct list_elem *a, struct list_elem *b, void *aux)
+{
+  return list_entry(a, struct thread, elem) -> priority < 
+         list_entry(b, struct thread, elem) -> priority;
+}
+
 
 /* Sorts LIST according to LESS given auxiliary data AUX, using a
    natural iterative merge sort that runs in O(n lg n) time and
