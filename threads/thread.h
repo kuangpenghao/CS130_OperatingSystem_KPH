@@ -88,8 +88,12 @@ struct thread
     char name[16];                      /* Name (for debugging purposes). */
     uint8_t *stack;                     /* Saved stack pointer. */
     int priority;                       /* Priority. */
+    int original_priority;              /* Original priority. */
     int64_t block_ticks;                    /* Number of ticks to block. */
     struct list_elem allelem;           /* List element for all threads list. */
+
+    struct list locks_holding;          /* List of locks held by the thread. */
+    struct lock *lock_waiting;          /* Lock the thread is waiting for. */
 
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
@@ -107,6 +111,8 @@ struct thread
    If true, use multi-level feedback queue scheduler.
    Controlled by kernel command-line option "-o mlfqs". */
 extern bool thread_mlfqs;
+
+void thread_print_ready_list(void);
 
 void thread_init (void);
 void thread_start (void);
@@ -135,6 +141,7 @@ void thread_foreach (thread_action_func *, void *);
 
 int thread_get_priority (void);
 void thread_set_priority (int);
+void thread_priority_update(struct thread *);
 
 int thread_get_nice (void);
 void thread_set_nice (int);

@@ -68,7 +68,8 @@ sema_down (struct semaphore *sema)
   old_level = intr_disable ();
   while (sema->value == 0) 
     {
-      list_push_back (&sema->waiters, &thread_current ()->elem);
+      list_insert_ordered(&sema->waiters, &thread_current ()->elem, 
+        &thread_priority_cmp, NULL);
       thread_block ();
     }
   sema->value--;
@@ -114,9 +115,13 @@ sema_up (struct semaphore *sema)
 
   old_level = intr_disable ();
   if (!list_empty (&sema->waiters)) 
+  {
+    list_sort(&sema->waiters, (list_less_func *) &thread_priority_cmp, NULL);
     thread_unblock (list_entry (list_pop_front (&sema->waiters),
-                                struct thread, elem));
+                                struct thread, elem));       
+  }
   sema->value++;
+  thread_yield();
   intr_set_level (old_level);
 }
 
@@ -178,6 +183,7 @@ lock_init (struct lock *lock)
   ASSERT (lock != NULL);
 
   lock->holder = NULL;
+  lock->max_priority = 0;
   sema_init (&lock->semaphore, 1);
 }
 
@@ -196,7 +202,45 @@ lock_acquire (struct lock *lock)
   ASSERT (!intr_context ());
   ASSERT (!lock_held_by_current_thread (lock));
 
+  if(lock->holder != NULL)
+  {
+    struct thread *cur_thread = thread_current();
+    cur_thread->lock_waiting = lock;
+    while(cur_thread->lock_waiting != NULL)
+    {
+      struct lock *lock_now = cur_thread->lock_waiting;
+      struct thread *holder_thread = lock_now->holder;
+
+      if(cur_thread->priority <= holder_thread->priority) break;
+
+      holder_thread->priority = cur_thread->priority;
+      
+      for(struct list_elem *e = list_begin(&holder_thread->locks_holding);
+          e != list_end(&holder_thread->locks_holding);
+          e = list_next(e))
+      {
+        struct lock *lock_target = list_entry(e, struct lock, elem);
+        if(lock_now == lock_target)
+        {
+          lock_target->max_priority = cur_thread->priority;
+          break;
+        }
+      }
+
+      thread_priority_update(holder_thread);
+      thread_yield();
+
+      cur_thread = holder_thread;
+    }
+  }
+
   sema_down (&lock->semaphore);
+
+  struct thread *cur_thread = thread_current();
+  cur_thread->lock_waiting = NULL;
+  list_push_back(&cur_thread->locks_holding, &lock->elem);
+  lock->holder = cur_thread;
+
   lock->holder = thread_current ();
 }
 
@@ -231,8 +275,16 @@ lock_release (struct lock *lock)
   ASSERT (lock != NULL);
   ASSERT (lock_held_by_current_thread (lock));
 
+  enum intr_level old_level = intr_disable();
+
+  struct thread *cur_thread = thread_current();
+  lock->max_priority = 0;
   lock->holder = NULL;
+  list_remove(&lock->elem);
+  thread_priority_update(cur_thread);
   sema_up (&lock->semaphore);
+
+  intr_set_level(old_level);
 }
 
 /* Returns true if the current thread holds LOCK, false
@@ -295,7 +347,7 @@ cond_wait (struct condition *cond, struct lock *lock)
   ASSERT (lock_held_by_current_thread (lock));
   
   sema_init (&waiter.semaphore, 0);
-  list_push_back (&cond->waiters, &waiter.elem);
+  list_insert_ordered(&cond->waiters, &waiter.elem, &thread_priority_cmp, NULL);
   lock_release (lock);
   sema_down (&waiter.semaphore);
   lock_acquire (lock);
@@ -317,8 +369,21 @@ cond_signal (struct condition *cond, struct lock *lock UNUSED)
   ASSERT (lock_held_by_current_thread (lock));
 
   if (!list_empty (&cond->waiters)) 
+  {
+    list_sort(&cond->waiters, &cond_sema_priority_cmp, NULL);
     sema_up (&list_entry (list_pop_front (&cond->waiters),
-                          struct semaphore_elem, elem)->semaphore);
+                          struct semaphore_elem, elem)->semaphore);    
+  }
+
+  thread_yield();
+}
+
+bool cond_sema_priority_cmp(const struct list_elem *a, const struct list_elem *b, void *aux UNUSED)
+{
+  struct semaphore_elem *sema_a = list_entry(a, struct semaphore_elem, elem);
+  struct semaphore_elem *sema_b = list_entry(b, struct semaphore_elem, elem);
+  return list_entry(list_front(&sema_a->semaphore.waiters), struct thread, elem)->priority > 
+         list_entry(list_front(&sema_b->semaphore.waiters), struct thread, elem)->priority;
 }
 
 /* Wakes up all threads, if any, waiting on COND (protected by

@@ -72,6 +72,17 @@ static void schedule (void);
 void thread_schedule_tail (struct thread *prev);
 static tid_t allocate_tid (void);
 
+void thread_print_ready_list()
+{
+  struct list_elem *e;
+  for(e = list_begin(&ready_list); e != list_end(&ready_list); e = list_next(e))
+  {
+    struct thread *t = list_entry(e, struct thread, elem);
+    printf("%s %d\n", t->name, t->priority);
+  }
+}
+
+
 /* Initializes the threading system by transforming the code
    that's currently running into a thread.  This can't work in
    general and it is possible in this case only because loader.S
@@ -360,7 +371,9 @@ bool thread_priority_cmp(const struct list_elem *a, const struct list_elem *b, v
 void
 thread_set_priority (int new_priority) 
 {
-  thread_current ()->priority = new_priority;
+  thread_current ()->original_priority = new_priority;
+  if(list_empty(&thread_current()->locks_holding))
+    thread_current ()->priority = new_priority;
   thread_yield();
 }
 
@@ -369,6 +382,34 @@ int
 thread_get_priority (void) 
 {
   return thread_current ()->priority;
+}
+
+void thread_priority_update(struct thread* t)
+{
+  enum intr_level old_level = intr_disable();
+
+  if(list_empty(&t->lock_waiting))
+  {
+    t->priority = t->original_priority;
+    return;
+  }
+
+  int max_priority = t->original_priority;
+  for(struct list_elem *e = list_begin(&t->locks_holding);
+      e != list_end(&t->locks_holding);
+      e = list_next(e)
+  )
+  {
+    struct lock *lock_remain = list_entry(e, struct lock, elem);
+    if(lock_remain->max_priority > max_priority)
+      max_priority = lock_remain->max_priority;
+  }
+  t->priority = max_priority;
+
+  //list_sort(&ready_list, &thread_priority_cmp, NULL);
+  thread_yield();
+
+  intr_set_level(old_level);
 }
 
 /* Sets the current thread's nice value to NICE. */
@@ -488,8 +529,12 @@ init_thread (struct thread *t, const char *name, int priority)
   strlcpy (t->name, name, sizeof t->name);
   t->stack = (uint8_t *) t + PGSIZE;
   t->priority = priority;
+  t->original_priority = priority;
   t->magic = THREAD_MAGIC;
   t->block_ticks = 0;
+
+  t->lock_waiting = NULL;
+  list_init(&t->locks_holding);
 
   old_level = intr_disable ();
   list_insert_ordered(&all_list, &t->allelem, &thread_priority_cmp,NULL);
